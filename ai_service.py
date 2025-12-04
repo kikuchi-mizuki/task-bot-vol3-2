@@ -42,6 +42,10 @@ class AIService:
                 "3. **「来週」という表現は必ず1週間分（7日間）の日付として抽出してください**\n"
                 "   - 例：「来週」→ 来週月曜日から日曜日までの7日間\n"
                 "   - 例：「来週の空き時間」→ 来週月曜日〜日曜日の7日間の空き時間\n"
+                "3-1. **日付範囲（例：12/5-12/28、12/5〜12/28）は必ず個別の日付に展開してください**\n"
+                "   - 例：「12/5-12/28」→ 12/5、12/6、12/7、...、12/28の各日付を個別に抽出\n"
+                "   - 例：「12/5-12/28の空き時間」→ 12/5から12/28までの全ての日付の空き時間を確認\n"
+                "   - 日付範囲が指定されている場合は、開始日から終了日までの全ての日付をdates配列に含めてください\n"
                 "4. 月が指定されていない場合（例：16日、17日）は今月として認識\n"
                 "5. 時間表現（午前9時、14時30分、9-10時、9時-10時、9:00-10:00など）を24時間形式に変換\n"
                 "6. **タスクの種類を判定（最重要）**:\n   - 日時のみ（タイトルや内容がない）場合は必ず「availability_check」（空き時間確認）\n   - 日時+タイトル/予定内容がある場合は「add_event」（予定追加）\n   - 例：「7/8 18時以降」→ availability_check（日時のみ）\n   - 例：「7/10 18:00〜20:00」→ availability_check（日時のみ）\n   - 例：「・7/10 9-10時\n・7/11 9-10時」→ availability_check（日時のみ複数）\n   - 例：「7/10 9-10時」→ availability_check（9:00〜10:00として抽出）\n   - 例：「7/10 9時-10時」→ availability_check（9:00〜10:00として抽出）\n   - 例：「7/10 9:00-10:00」→ availability_check（9:00〜10:00として抽出）\n   - 例：「7月18日 11:00-14:00,15:00-17:00」→ availability_check（日時のみ複数）\n   - 例：「7月20日 13:00-0:00」→ availability_check（日時のみ）\n   - 例：「明日の午前9時から会議を追加して」→ add_event（日時+予定内容）\n   - 例：「来週月曜日の14時から打ち合わせ」→ add_event（日時+予定内容）\n   - 例：「田中さんとMTG」→ add_event（予定内容あり）\n   - 例：「会議を追加」→ add_event（予定内容あり）\n"
@@ -143,6 +147,71 @@ class AIService:
         if not parsed or 'dates' not in parsed:
             print(f"[DEBUG] datesが存在しない: {parsed}")
             return parsed
+        
+        # 日付範囲を展開する処理（AIが展開できていない場合に備えて）
+        # 例：12/5-12/28 → 12/5から12/28までの全ての日付
+        # パターン1: 12/5-12/28 または 12/5〜12/28
+        date_range_pattern1 = r'(\d{1,2})/(\d{1,2})[\-〜~](\d{1,2})/(\d{1,2})'
+        # パターン2: 12月5日-12月28日 または 12月5日〜12月28日
+        date_range_pattern2 = r'(\d{1,2})月(\d{1,2})日[\-〜~](\d{1,2})月(\d{1,2})日'
+        
+        date_range_match = re.search(date_range_pattern1, original_text) or re.search(date_range_pattern2, original_text)
+        if date_range_match:
+            groups = date_range_match.groups()
+            if len(groups) == 4:
+                start_month, start_day, end_month, end_day = groups
+                start_month, start_day, end_month, end_day = int(start_month), int(start_day), int(end_month), int(end_day)
+                year = now.year
+                
+                try:
+                    # 開始日と終了日を計算
+                    start_date = datetime(year, start_month, start_day)
+                    end_date = datetime(year, end_month, end_day)
+                    
+                    # 開始日が過去の場合は来年として扱う
+                    if start_date < now:
+                        start_date = datetime(year + 1, start_month, start_day)
+                        end_date = datetime(year + 1, end_month, end_day)
+                    
+                    # 終了日が開始日より前の場合は、終了日を来年として扱う（月を跨ぐ場合）
+                    if end_date < start_date:
+                        end_date = datetime(year + 1, end_month, end_day)
+                    
+                    # 日付範囲を展開
+                    expanded_dates = []
+                    current_date = start_date
+                    while current_date <= end_date:
+                        date_str = current_date.strftime('%Y-%m-%d')
+                        # 既存のdatesに同じ日付がないかチェック
+                        if not any(d.get('date') == date_str for d in parsed['dates']):
+                            # 時間が指定されていない場合はデフォルト値を設定
+                            time = '08:00'
+                            end_time = '22:00'
+                            # 既存のdatesから時間を取得（最初のエントリから）
+                            if parsed['dates']:
+                                first_date = parsed['dates'][0]
+                                if first_date.get('time'):
+                                    time = first_date.get('time')
+                                if first_date.get('end_time'):
+                                    end_time = first_date.get('end_time')
+                            
+                            expanded_dates.append({
+                                'date': date_str,
+                                'time': time,
+                                'end_time': end_time
+                            })
+                            print(f"[DEBUG] 日付範囲から展開: {date_str}")
+                        current_date += timedelta(days=1)
+                    
+                    # 展開した日付をparsed['dates']に追加
+                    if expanded_dates:
+                        print(f"[DEBUG] 日付範囲展開: {len(expanded_dates)}日分を追加")
+                        parsed['dates'].extend(expanded_dates)
+                except Exception as e:
+                    print(f"[DEBUG] 日付範囲展開エラー: {e}")
+                    import traceback
+                    traceback.print_exc()
+        
         allday_dates = set()
         new_dates = []
         # 1. AI抽出を最優先。time, end_timeが空欄のものだけ補完
