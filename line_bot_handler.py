@@ -299,9 +299,11 @@ class LineBotHandler:
                 print(f"[DEBUG] dates_info: {ai_result.get('dates', [])}")
                 location = ai_result.get('location', '')
                 travel_time_minutes = ai_result.get('travel_time_minutes', None)
+                required_duration_minutes = ai_result.get('required_duration_minutes', None)
                 print(f"[DEBUG] location: {location}")
                 print(f"[DEBUG] travel_time_minutes: {travel_time_minutes}")
-                return self._handle_availability_check(ai_result.get('dates', []), line_user_id, location=location, travel_time_minutes=travel_time_minutes)
+                print(f"[DEBUG] required_duration_minutes: {required_duration_minutes}")
+                return self._handle_availability_check(ai_result.get('dates', []), line_user_id, location=location, travel_time_minutes=travel_time_minutes, required_duration_minutes=required_duration_minutes)
             elif task_type == 'add_event':
                 # 予定追加時の重複確認ロジック（複数予定対応）
                 if not self.calendar_service:
@@ -576,7 +578,7 @@ class LineBotHandler:
             traceback.print_exc()
             return TextSendMessage(text=f"月の空き時間確認でエラーが発生しました: {str(e)}")
     
-    def _handle_availability_check(self, dates_info, line_user_id, location=None, travel_time_minutes=None):
+    def _handle_availability_check(self, dates_info, line_user_id, location=None, travel_time_minutes=None, required_duration_minutes=None):
         """空き時間確認を処理します"""
         try:
             print(f"[DEBUG] _handle_availability_check開始")
@@ -712,6 +714,23 @@ class LineBotHandler:
                                         print(f"[DEBUG] 移動時間不足で除外: {slot_start_str}〜{slot_end_str}")
                                 free_slots = filtered_free_slots
                                 print(f"[DEBUG] 移動時間フィルタ後: {len(free_slots)}件")
+
+                            # 希望する最低枠長（required_duration_minutes）がある場合、十分な長さの枠のみ返す
+                            if required_duration_minutes and required_duration_minutes > 0:
+                                print(f"[DEBUG] 最低枠長フィルタ適用: {required_duration_minutes}分")
+                                duration_filtered_slots = []
+                                for slot in free_slots:
+                                    slot_start_str = slot['start']
+                                    slot_end_str = slot['end']
+                                    slot_start_parsed = jst.localize(datetime.strptime(f"{date_str} {slot_start_str}", "%Y-%m-%d %H:%M"))
+                                    slot_end_parsed = jst.localize(datetime.strptime(f"{date_str} {slot_end_str}", "%Y-%m-%d %H:%M"))
+                                    duration_minutes = (slot_end_parsed - slot_start_parsed).total_seconds() / 60
+                                    if duration_minutes >= required_duration_minutes:
+                                        duration_filtered_slots.append(slot)
+                                        print(f"[DEBUG] 最低枠長を満たす空き時間: {slot_start_str}〜{slot_end_str} ({duration_minutes}分)")
+                                    else:
+                                        print(f"[DEBUG] 最低枠長不足で除外: {slot_start_str}〜{slot_end_str} ({duration_minutes}分)")
+                                free_slots = duration_filtered_slots
                         else:
                             print(f"[DEBUG] 日付{i+1}のスロット範囲が無効: {slot_start} >= {slot_end}")
                             free_slots = []

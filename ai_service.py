@@ -71,6 +71,9 @@ class AIService:
                 "19. **移動時間（例：移動時間は1時間、移動に1時間かかる）が入力されている場合は、travel_time_minutesフィールドに抽出してください。**\n"
                 "    - 例：「11月の空き時間を教えて。移動時間は1時間。」→ travel_time_minutes: 60\n"
                 "    - 例：「移動時間30分かかります」→ travel_time_minutes: 30\n"
+                "20. **希望する枠の最低長さが指定されている場合（例：「2時間」「90分以上」など）は、required_duration_minutesとして抽出してください。**\n"
+                "    - 例：「2時間の空き時間」→ required_duration_minutes: 120\n"
+                "    - 例：「90分の打ち合わせができる時間」→ required_duration_minutes: 90\n"
                 "\n"
                 "【出力例】\n"
                 "空き時間確認の場合:\n"
@@ -147,6 +150,29 @@ class AIService:
         if not parsed or 'dates' not in parsed:
             print(f"[DEBUG] datesが存在しない: {parsed}")
             return parsed
+        
+        # 希望する枠の最低長さ（例: 2時間、90分）を抽出（移動時間ではないもの）
+        required_duration_minutes = parsed.get('required_duration_minutes')
+        if required_duration_minutes is None:
+            # 「移動時間」を含まない時間指定のみを対象にする
+            hours_match = re.search(r'(?<!移動)(\d+(?:\.\d+)?)\s*時間', original_text)
+            minutes_match = re.search(r'(?<!移動)(\d+)\s*分', original_text)
+            duration_total = 0
+            if hours_match:
+                try:
+                    duration_total += int(float(hours_match.group(1)) * 60)
+                except Exception:
+                    pass
+            if minutes_match:
+                try:
+                    duration_total += int(minutes_match.group(1))
+                except Exception:
+                    pass
+            if duration_total > 0:
+                required_duration_minutes = duration_total
+                print(f"[DEBUG] 希望枠の長さを抽出: {required_duration_minutes}分")
+        if required_duration_minutes is not None:
+            parsed['required_duration_minutes'] = required_duration_minutes
         
         # 日付範囲を展開する処理（AIが展開できていない場合に備えて）
         # 例：12/5-12/28 → 12/5から12/28までの全ての日付
