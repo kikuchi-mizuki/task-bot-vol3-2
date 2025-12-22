@@ -209,6 +209,42 @@ def test_full_flow():
     response_text = ai.format_free_slots_response_by_frame(free_slots_by_frame)
     print('response_text:\n', response_text)
 
+def test_month_year_detection():
+    """12月に1月と指定された場合、来年の1月を返すことをテスト"""
+    print("=== 月のみ指定時の年判定テスト ===")
+
+    ai = AIService()
+    now = datetime.now(pytz.timezone('Asia/Tokyo'))
+
+    # 現在が12月の場合のテストケース
+    if now.month == 12:
+        user_message = '1月の空き時間'
+        ai_result = ai.extract_dates_and_times(user_message)
+        print(f'テストメッセージ: {user_message}')
+        print(f'AI結果: {ai_result}')
+
+        if ai_result and 'dates' in ai_result:
+            dates = ai_result.get('dates', [])
+            if dates:
+                first_date = dates[0].get('date', '')
+                year = int(first_date.split('-')[0])
+                month = int(first_date.split('-')[1])
+
+                # 1月が来年（2026年）として認識されているか確認
+                expected_year = now.year + 1
+                if year == expected_year and month == 1:
+                    print(f'✅ 成功: 1月が{expected_year}年として認識されました')
+                else:
+                    print(f'❌ 失敗: 1月が{year}年{month}月として認識されました（期待: {expected_year}年1月）')
+            else:
+                print('❌ 失敗: datesが空です')
+        else:
+            print('❌ 失敗: ai_resultにdatesがありません')
+    else:
+        print(f'現在の月が{now.month}月のため、このテストは12月のみ有効です')
+
+    print()
+
 def main():
     """メイン関数"""
     print("LINE Calendar Bot テスト開始")
@@ -237,4 +273,6 @@ if __name__ == "__main__":
     test_find_free_slots_for_day()
     print('find_free_slots_for_dayテスト成功')
     test_full_flow()
-    print('full_flowテスト成功') 
+    print('full_flowテスト成功')
+    test_month_year_detection()
+    print('month_year_detectionテスト成功') 
