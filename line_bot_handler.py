@@ -284,8 +284,7 @@ class LineBotHandler:
                     pass
                 else:
                     if is_this_month:
-                        import pytz as _pytz
-                        _now = datetime.now(_pytz.timezone('Asia/Tokyo'))
+                        _now = datetime.now(self.jst)
                         month_num = _now.month
                     else:
                         month_num = int(month_match.group(1))
