@@ -246,6 +246,87 @@ class GoogleCalendarService:
             logger.error(f"[ERROR] add_eventで例外発生: {e}")
             return False, f"エラーが発生しました: {str(e)}", None
     
+    def get_events_for_date_range(self, start_date, end_date, line_user_id=None):
+        """開始日〜終了日の全イベントを1リクエストで取得し、日付ごとに整理して返す"""
+        import pytz
+        jst = pytz.timezone('Asia/Tokyo')
+        try:
+            service = self._get_calendar_service(line_user_id) if line_user_id else self.service
+            if not service:
+                return {}
+
+            start_dt = jst.localize(datetime.combine(start_date, datetime.min.time()))
+            end_dt = jst.localize(datetime.combine(end_date, datetime.min.time())) + timedelta(days=1)
+            start_utc = start_dt.astimezone(pytz.UTC)
+            end_utc = end_dt.astimezone(pytz.UTC)
+
+            all_items = []
+            page_token = None
+            while True:
+                kwargs = dict(
+                    calendarId=Config.GOOGLE_CALENDAR_ID,
+                    timeMin=start_utc.isoformat(),
+                    timeMax=end_utc.isoformat(),
+                    singleEvents=True,
+                    orderBy='startTime',
+                    maxResults=2500,
+                )
+                if page_token:
+                    kwargs['pageToken'] = page_token
+                result = service.events().list(**kwargs).execute()
+                all_items.extend(result.get('items', []))
+                page_token = result.get('nextPageToken')
+                if not page_token:
+                    break
+
+            # 日付ごとに振り分け
+            events_by_date = {}
+            current = start_date
+            while current <= end_date:
+                events_by_date[current.strftime('%Y-%m-%d')] = []
+                current += timedelta(days=1)
+
+            for item in all_items:
+                is_all_day = 'date' in item['start'] and 'dateTime' not in item['start']
+                if is_all_day:
+                    event_date_str = item['start']['date']
+                    start_str = item['start']['date']
+                    end_str = item['end']['date']
+                else:
+                    raw = item['start']['dateTime']
+                    event_dt = datetime.fromisoformat(raw.replace('Z', '+00:00')).astimezone(jst)
+                    event_date_str = event_dt.strftime('%Y-%m-%d')
+                    start_str = item['start']['dateTime']
+                    end_str = item['end']['dateTime']
+
+                if event_date_str in events_by_date:
+                    events_by_date[event_date_str].append({
+                        'title': item.get('summary', 'タイトルなし'),
+                        'start': start_str,
+                        'end': end_str,
+                        'location': item.get('location', ''),
+                        'is_all_day': is_all_day,
+                    })
+
+            # events_info形式に変換
+            events_info = []
+            current = start_date
+            while current <= end_date:
+                date_str = current.strftime('%Y-%m-%d')
+                events_info.append({
+                    'date': date_str,
+                    'events': events_by_date.get(date_str, []),
+                })
+                current += timedelta(days=1)
+
+            return events_info
+
+        except Exception as e:
+            logger.error(f"get_events_for_date_range エラー: {e}")
+            import traceback
+            traceback.print_exc()
+            return []
+
     def get_events_for_dates(self, dates, line_user_id=None):
         """指定された日付のイベントを取得します（ユーザーごとの認証トークン対応、JST日付で正確に抽出）"""
         import pytz

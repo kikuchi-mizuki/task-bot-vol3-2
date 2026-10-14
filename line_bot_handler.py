@@ -592,8 +592,9 @@ class LineBotHandler:
             return TextSendMessage(text=f"月の空き時間確認でエラーが発生しました: {str(e)}")
     
     def _handle_month_get_events(self, month_num, line_user_id):
-        """月全体の予定一覧を取得して返します"""
+        """月全体の予定一覧を取得して返します（1リクエストで取得）"""
         import calendar as cal_module
+        from datetime import date as date_cls
         try:
             now_jst = datetime.now(self.jst)
             year = now_jst.year
@@ -601,23 +602,19 @@ class LineBotHandler:
                 year += 1
 
             _, last_day = cal_module.monthrange(year, month_num)
-
-            # その月の全日付リストを作成
-            from datetime import date as date_cls
-            date_objects = []
-            for day in range(1, last_day + 1):
-                date_objects.append(date_cls(year, month_num, day))
+            start_date = date_cls(year, month_num, 1)
+            end_date = date_cls(year, month_num, last_day)
 
             if not self.calendar_service:
                 return TextSendMessage(text="カレンダーサービスが初期化されていません。")
             if not self.ai_service:
                 return TextSendMessage(text="AIサービスが初期化されていません。")
 
-            print(f"[DEBUG] _handle_month_get_events: {year}年{month_num}月 ({len(date_objects)}日)")
+            print(f"[DEBUG] _handle_month_get_events: {year}年{month_num}月 (1リクエストで取得)")
 
-            events_info = self.calendar_service.get_events_for_dates(date_objects, line_user_id=line_user_id)
+            # 月全体を1リクエストで取得
+            events_info = self.calendar_service.get_events_for_date_range(start_date, end_date, line_user_id=line_user_id)
 
-            # 予定がある日付だけを抽出してフォーマット
             response_text = self.ai_service.format_month_events_response(events_info, year, month_num)
             return TextSendMessage(text=response_text)
 
