@@ -54,7 +54,7 @@ class AIService:
                 "   - 例：現在が2025年1月の場合、「12月」と指定されたら2025年12月として認識（まだ先の月）\n"
                 "   - 例：現在が2025年1月の場合、「1月」と指定されたら2025年1月として認識\n"
                 "5. 時間表現（午前9時、14時30分、9-10時、9時-10時、9:00-10:00など）を24時間形式に変換\n"
-                "6. **タスクの種類を判定（最重要）**:\n   - 日時のみ（タイトルや内容がない）場合は必ず「availability_check」（空き時間確認）\n   - 日時+タイトル/予定内容がある場合は「add_event」（予定追加）\n   - 例：「7/8 18時以降」→ availability_check（日時のみ）\n   - 例：「7/10 18:00〜20:00」→ availability_check（日時のみ）\n   - 例：「・7/10 9-10時\n・7/11 9-10時」→ availability_check（日時のみ複数）\n   - 例：「7/10 9-10時」→ availability_check（9:00〜10:00として抽出）\n   - 例：「7/10 9時-10時」→ availability_check（9:00〜10:00として抽出）\n   - 例：「7/10 9:00-10:00」→ availability_check（9:00〜10:00として抽出）\n   - 例：「7月18日 11:00-14:00,15:00-17:00」→ availability_check（日時のみ複数）\n   - 例：「7月20日 13:00-0:00」→ availability_check（日時のみ）\n   - 例：「明日の午前9時から会議を追加して」→ add_event（日時+予定内容）\n   - 例：「来週月曜日の14時から打ち合わせ」→ add_event（日時+予定内容）\n   - 例：「田中さんとMTG」→ add_event（予定内容あり）\n   - 例：「会議を追加」→ add_event（予定内容あり）\n"
+                "6. **タスクの種類を判定（最重要）**:\n   - availability_check: 空き時間を確認したい（「〇日空いてる？」「空き時間教えて」「〇日〜〇日の空き時間」）\n   - add_event: 予定を追加したい（日時＋タイトルがある）\n   - get_events: 既存の予定を見たい（「今日の予定は？」「来週のスケジュール」「〇日は何がある？」「忙しい？」）\n   - suggest_time: 予定を入れたいが日時が決まっていない（「来週会食を入れたい」「今週中に打ち合わせしたい」「〇〇したい」）\n   - unknown: カレンダーと無関係な質問\n   - 日時のみ（タイトルや内容がない）場合は必ず「availability_check」（空き時間確認）\n   - 日時+タイトル/予定内容がある場合は「add_event」（予定追加）\n   - 例：「7/8 18時以降」→ availability_check（日時のみ）\n   - 例：「7/10 18:00〜20:00」→ availability_check（日時のみ）\n   - 例：「・7/10 9-10時\n・7/11 9-10時」→ availability_check（日時のみ複数）\n   - 例：「7/10 9-10時」→ availability_check（9:00〜10:00として抽出）\n   - 例：「7/10 9時-10時」→ availability_check（9:00〜10:00として抽出）\n   - 例：「7/10 9:00-10:00」→ availability_check（9:00〜10:00として抽出）\n   - 例：「7月18日 11:00-14:00,15:00-17:00」→ availability_check（日時のみ複数）\n   - 例：「7月20日 13:00-0:00」→ availability_check（日時のみ）\n   - 例：「明日の午前9時から会議を追加して」→ add_event（日時+予定内容）\n   - 例：「来週月曜日の14時から打ち合わせ」→ add_event（日時+予定内容）\n   - 例：「田中さんとMTG」→ add_event（予定内容あり）\n   - 例：「会議を追加」→ add_event（予定内容あり）\n   - 例：「今日の予定は？」→ get_events（既存予定確認）\n   - 例：「来週忙しい？」→ get_events（既存予定確認）\n   - 例：「週末空いてる？」→ availability_check（空き時間確認）\n   - 例：「来週会食を入れたい」→ suggest_time（予定提案）\n   - 例：「今週中に打ち合わせしたい」→ suggest_time（予定提案）\n   - 例：「天気は？」→ unknown（カレンダー無関係）\n"
                 "7. 自然言語の時間表現は必ず具体的な時刻範囲・日付範囲に変換してください。\n"
                 "   例：'18時以降'→'18:00〜23:59'、'終日'→'00:00〜23:59'、'今日'→'現在時刻〜23:59'、'今日から1週間'→'今日〜7日後の23:59'。\n"
                 "   終了時間が指定されていない場合は1時間の予定として認識してください（例：'10時'→'10:00〜11:00'）。\n"
@@ -96,6 +96,15 @@ class AIService:
                 "\n"
                 "予定追加の場合:\n"
                 "{\n  \"task_type\": \"add_event\",\n  \"dates\": [\n    {\n      \"date\": \"2025-07-14\",\n      \"time\": \"20:00\",\n      \"end_time\": \"21:00\",\n      \"title\": \"田中さんMTG\",\n      \"description\": \"新作アプリの件\"\n    }\n  ]\n}\n"
+                "\n"
+                "既存予定確認の場合（get_events）:\n"
+                "{\n  \"task_type\": \"get_events\",\n  \"dates\": [\n    {\n      \"date\": \"2025-07-14\",\n      \"time\": \"00:00\",\n      \"end_time\": \"23:59\"\n    }\n  ]\n}\n"
+                "\n"
+                "予定提案の場合（suggest_time）:\n"
+                "{\n  \"task_type\": \"suggest_time\",\n  \"title\": \"会食\",\n  \"dates\": [\n    {\n      \"date\": \"2025-01-20\",\n      \"time\": \"00:00\",\n      \"end_time\": \"23:59\"\n    },\n    {\n      \"date\": \"2025-01-21\",\n      \"time\": \"00:00\",\n      \"end_time\": \"23:59\"\n    }\n  ]\n}\n"
+                "\n"
+                "カレンダー無関係の場合（unknown）:\n"
+                "{\n  \"task_type\": \"unknown\"\n}\n"
             )
             response = self.client.chat.completions.create(
                 model="gpt-3.5-turbo",
@@ -117,16 +126,19 @@ class AIService:
             
             # AIの判定結果を強制的に修正
             if parsed and isinstance(parsed, dict) and 'dates' in parsed:
-                # 日時のみの場合は強制的にavailability_checkに変更
-                has_title_or_description = False
-                for date_info in parsed.get('dates', []):
-                    if date_info.get('title') or date_info.get('description'):
-                        has_title_or_description = True
-                        break
-                
-                if not has_title_or_description:
-                    logger.info(f"[DEBUG] 日時のみのため、task_typeをavailability_checkに強制変更")
-                    parsed['task_type'] = 'availability_check'
+                task_type_ai = parsed.get('task_type', '')
+                # get_events / suggest_time / unknown はそのまま維持
+                if task_type_ai not in ('get_events', 'suggest_time', 'unknown'):
+                    # 日時のみの場合は強制的にavailability_checkに変更
+                    has_title_or_description = False
+                    for date_info in parsed.get('dates', []):
+                        if date_info.get('title') or date_info.get('description'):
+                            has_title_or_description = True
+                            break
+
+                    if not has_title_or_description:
+                        logger.info(f"[DEBUG] 日時のみのため、task_typeをavailability_checkに強制変更")
+                        parsed['task_type'] = 'availability_check'
             
             return self._supplement_times(parsed, text)
             
@@ -993,6 +1005,159 @@ class AIService:
         # 全ての日付で空き時間がない場合
         if response == "✅以下が空き時間です！\n\n":
             return "✅空き時間はありませんでした。"
-                    
+
         print(f"[DEBUG] 最終レスポンス: {response}")
-        return response 
+        return response
+
+    def format_events_response(self, events_info):
+        """
+        取得した予定リストを秘書風にフォーマットします
+        events_info: [{'date': 'YYYY-MM-DD', 'events': [...], 'error': ...}, ...]
+        """
+        jst = pytz.timezone('Asia/Tokyo')
+        if not events_info:
+            return "指定された日付に予定はありませんでした。"
+
+        response_parts = []
+        all_empty = True
+
+        for day_info in events_info:
+            if 'error' in day_info:
+                date_str = day_info.get('date', '')
+                try:
+                    dt = jst.localize(datetime.strptime(date_str, '%Y-%m-%d'))
+                    weekday = "月火水木金土日"[dt.weekday()]
+                    date_label = f"{dt.month}/{dt.day}（{weekday}）"
+                except Exception:
+                    date_label = date_str
+                response_parts.append(f"📅 {date_label}\n取得エラー: {day_info['error']}")
+                continue
+
+            date_str = day_info.get('date', '')
+            events = day_info.get('events', [])
+
+            try:
+                dt = jst.localize(datetime.strptime(date_str, '%Y-%m-%d'))
+                weekday = "月火水木金土日"[dt.weekday()]
+                date_label = f"{dt.month}/{dt.day}（{weekday}）"
+            except Exception:
+                date_label = date_str
+
+            if not events:
+                response_parts.append(f"📅 {date_label}は予定が入っていません！\n空いています😊")
+            else:
+                all_empty = False
+                block = f"📅 {date_label}の予定\n\n"
+                timed_events = []
+                allday_events = []
+                for event in events:
+                    if event.get('is_all_day'):
+                        allday_events.append(event)
+                    else:
+                        timed_events.append(event)
+
+                for event in timed_events:
+                    start = event.get('start', '')
+                    end = event.get('end', '')
+                    title = event.get('title', '予定')
+                    try:
+                        start_dt = datetime.fromisoformat(start.replace('Z', '+00:00')).astimezone(jst)
+                        end_dt = datetime.fromisoformat(end.replace('Z', '+00:00')).astimezone(jst)
+                        time_str = f"{start_dt.strftime('%H:%M')}〜{end_dt.strftime('%H:%M')}"
+                    except Exception:
+                        time_str = f"{start}〜{end}"
+                    block += f"{time_str} {title}\n"
+
+                for event in allday_events:
+                    title = event.get('title', '終日予定')
+                    block += f"終日 {title}\n"
+
+                # 最後の予定の終了時刻を調べて「夕方以降は空き」などを追記
+                if timed_events:
+                    try:
+                        last_event = timed_events[-1]
+                        last_end = datetime.fromisoformat(last_event['end'].replace('Z', '+00:00')).astimezone(jst)
+                        last_hour = last_end.hour
+                        if last_hour <= 12:
+                            block += "\n午後以降は空いています！"
+                        elif last_hour <= 17:
+                            block += "\n夕方以降は空いています！"
+                    except Exception:
+                        pass
+
+                response_parts.append(block.rstrip())
+
+        return "\n\n".join(response_parts)
+
+    def format_suggest_response(self, title, free_slots_by_frame):
+        """
+        空き時間を提案する秘書風フォーマット
+        free_slots_by_frame: [{'date': 'YYYY-MM-DD', 'start_time': ..., 'end_time': ..., 'free_slots': [...]}, ...]
+        夜の時間帯（18:00以降）を優先して最大5候補を提示
+        """
+        print(f"[DEBUG] format_suggest_response開始: title={title}")
+        jst = pytz.timezone('Asia/Tokyo')
+
+        # 夜枠（18:00以降）の候補を集める
+        evening_candidates = []
+        other_candidates = []
+
+        for frame in free_slots_by_frame:
+            date_str = frame.get('date', '')
+            slots = frame.get('free_slots', [])
+            try:
+                dt = jst.localize(datetime.strptime(date_str, '%Y-%m-%d'))
+                weekday = "月火水木金土日"[dt.weekday()]
+                date_label = f"{dt.month}/{dt.day}（{weekday}）"
+            except Exception:
+                date_label = date_str
+
+            for slot in slots:
+                start_str = slot.get('start', '')
+                end_str = slot.get('end', '')
+                try:
+                    start_h = int(start_str.split(':')[0])
+                    # 18時以降を夜枠とする
+                    evening_start = max(start_str, '18:00') if start_h < 18 else start_str
+                    # 夜枠の終了は22:00を上限とする
+                    evening_end = min(end_str, '22:00')
+
+                    if start_h < 18:
+                        # スロットが18時をまたいでいる場合
+                        if end_str > '18:00':
+                            evening_candidates.append({
+                                'label': f"{date_label} {evening_start}〜{evening_end}"
+                            })
+                        # 18時より前のスロット
+                        day_end = min(end_str, '18:00')
+                        if start_str < day_end:
+                            other_candidates.append({
+                                'label': f"{date_label} {start_str}〜{day_end}"
+                            })
+                    else:
+                        # 18時以降のスロット
+                        slot_end = min(end_str, '22:00')
+                        if start_str < slot_end:
+                            evening_candidates.append({
+                                'label': f"{date_label} {start_str}〜{slot_end}"
+                            })
+                except Exception as e:
+                    print(f"[DEBUG] format_suggest_response スロット処理エラー: {e}")
+                    other_candidates.append({
+                        'label': f"{date_label} {start_str}〜{end_str}"
+                    })
+
+        # 夜枠を優先して最大5件
+        all_candidates = evening_candidates + other_candidates
+        candidates = all_candidates[:5]
+
+        if not candidates:
+            return f"{title}を入れられる空き時間が見つかりませんでした。\n別の日程をお試しください。"
+
+        response = f"以下が{title}の候補日程です✨\n\n"
+        for c in candidates:
+            response += f"{c['label']}\n"
+        response += "\nご希望の日時はありますか？"
+
+        print(f"[DEBUG] format_suggest_response完了: {response}")
+        return response

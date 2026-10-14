@@ -308,13 +308,21 @@ class LineBotHandler:
                 # 予定追加時の重複確認ロジック（複数予定対応）
                 if not self.calendar_service:
                     return TextSendMessage(text="カレンダーサービスが初期化されていません。")
-                
+
                 dates = ai_result.get('dates', [])
                 if not dates:
                     return TextSendMessage(text="イベント情報を正しく認識できませんでした。\n\n例: 「明日の午前9時から会議を追加して」\n「来週月曜日の14時から打ち合わせ」")
-                
+
                 # 複数の予定を処理
                 return self._handle_multiple_events(dates, line_user_id)
+            elif task_type == 'get_events':
+                print(f"[DEBUG] get_events: dates={ai_result.get('dates', [])}")
+                return self._handle_get_events(ai_result.get('dates', []), line_user_id)
+            elif task_type == 'suggest_time':
+                print(f"[DEBUG] suggest_time: ai_result={ai_result}")
+                return self._handle_suggest_time(ai_result, line_user_id)
+            elif task_type == 'unknown':
+                return TextSendMessage(text="カレンダー専門のアシスタントです。\n予定の確認・追加・空き時間の確認をお手伝いします！\n\n例：\n・「今日の予定は？」\n・「来週会食を入れたい」\n・「明日の空き時間を教えて」")
             else:
                 # 未対応コマンドの場合もガイダンスメッセージ
                 return TextSendMessage(text="日時の送信で空き時間が分かります！\n日時と内容の送信で予定を追加します！\n\n例：\n・「明日の空き時間」\n・「7/15 15:00〜16:00の空き時間」\n・「明日の午前9時から会議を追加して」\n・「来週月曜日の14時から打ち合わせ」")
@@ -822,6 +830,132 @@ class LineBotHandler:
         except Exception as e:
             return TextSendMessage(text=f"イベント追加でエラーが発生しました: {str(e)}")
     
+    def _handle_get_events(self, dates_info, line_user_id):
+        """既存の予定を取得してフォーマットして返します"""
+        try:
+            print(f"[DEBUG] _handle_get_events開始: dates_info={dates_info}, line_user_id={line_user_id}")
+
+            if not self._check_user_auth(line_user_id):
+                return self._send_auth_guide(line_user_id)
+
+            if not self.calendar_service:
+                return TextSendMessage(text="カレンダーサービスが初期化されていません。")
+
+            if not self.ai_service:
+                return TextSendMessage(text="AIサービスが初期化されていません。")
+
+            if not dates_info:
+                return TextSendMessage(text="日付を正しく認識できませんでした。\n\n例: 「今日の予定は？」「来週のスケジュール」")
+
+            # date文字列リストに変換
+            from datetime import date as date_cls
+            date_objects = []
+            for date_info in dates_info:
+                date_str = date_info.get('date', '')
+                if date_str:
+                    try:
+                        dt = datetime.strptime(date_str, '%Y-%m-%d').date()
+                        if dt not in date_objects:
+                            date_objects.append(dt)
+                    except Exception as e:
+                        print(f"[DEBUG] _handle_get_events 日付パースエラー: {e}")
+
+            if not date_objects:
+                return TextSendMessage(text="日付を正しく認識できませんでした。")
+
+            print(f"[DEBUG] _handle_get_events 対象日付: {date_objects}")
+
+            events_info = self.calendar_service.get_events_for_dates(date_objects, line_user_id=line_user_id)
+            print(f"[DEBUG] _handle_get_events 取得結果: {events_info}")
+
+            response_text = self.ai_service.format_events_response(events_info)
+            return TextSendMessage(text=response_text)
+
+        except Exception as e:
+            print(f"[DEBUG] _handle_get_eventsで例外発生: {e}")
+            import traceback
+            traceback.print_exc()
+            return TextSendMessage(text=f"予定の取得でエラーが発生しました: {str(e)}")
+
+    def _handle_suggest_time(self, ai_result, line_user_id):
+        """空き時間を調べて予定候補を提案します"""
+        try:
+            print(f"[DEBUG] _handle_suggest_time開始: ai_result={ai_result}, line_user_id={line_user_id}")
+
+            if not self._check_user_auth(line_user_id):
+                return self._send_auth_guide(line_user_id)
+
+            if not self.calendar_service:
+                return TextSendMessage(text="カレンダーサービスが初期化されていません。")
+
+            if not self.ai_service:
+                return TextSendMessage(text="AIサービスが初期化されていません。")
+
+            dates_info = ai_result.get('dates', [])
+            title = ai_result.get('title', '予定')
+
+            if not dates_info:
+                return TextSendMessage(text="日程範囲を正しく認識できませんでした。\n\n例: 「来週会食を入れたい」「今週中に打ち合わせしたい」")
+
+            print(f"[DEBUG] _handle_suggest_time: title={title}, dates_info数={len(dates_info)}")
+
+            # 夜枠（18:00〜22:00）で空き時間チェックするため、各日付を18:00〜22:00に上書き
+            evening_dates_info = []
+            for date_info in dates_info:
+                date_str = date_info.get('date', '')
+                if date_str:
+                    evening_dates_info.append({
+                        'date': date_str,
+                        'time': '18:00',
+                        'end_time': '22:00'
+                    })
+
+            print(f"[DEBUG] _handle_suggest_time: 夜枠dates_info={evening_dates_info}")
+
+            # 既存の_handle_availability_checkを活用して空き時間を取得
+            # ただし直接free_slots_by_frameを構築する
+            free_slots_by_frame = []
+            for date_info in evening_dates_info:
+                date_str = date_info.get('date')
+                start_time = date_info.get('time')
+                end_time = date_info.get('end_time')
+
+                if date_str and start_time and end_time:
+                    try:
+                        jst = pytz.timezone('Asia/Tokyo')
+                        start_dt = jst.localize(datetime.strptime(f"{date_str} {start_time}", "%Y-%m-%d %H:%M"))
+                        end_dt = jst.localize(datetime.strptime(f"{date_str} {end_time}", "%Y-%m-%d %H:%M"))
+
+                        all_events = self.calendar_service.get_events_for_time_range(start_dt, end_dt, line_user_id)
+                        print(f"[DEBUG] _handle_suggest_time: {date_str}の取得予定数={len(all_events)}")
+
+                        # 終日予定を除外
+                        events = [e for e in all_events if not e.get('is_all_day', False)]
+
+                        free_slots = self.calendar_service.find_free_slots_for_day(start_dt, end_dt, events)
+                        print(f"[DEBUG] _handle_suggest_time: {date_str}の空き時間={free_slots}")
+
+                        if free_slots:
+                            free_slots_by_frame.append({
+                                'date': date_str,
+                                'start_time': start_time,
+                                'end_time': end_time,
+                                'free_slots': free_slots
+                            })
+                    except Exception as e:
+                        print(f"[DEBUG] _handle_suggest_time: {date_str}処理エラー: {e}")
+
+            print(f"[DEBUG] _handle_suggest_time: free_slots_by_frame={free_slots_by_frame}")
+
+            response_text = self.ai_service.format_suggest_response(title, free_slots_by_frame)
+            return TextSendMessage(text=response_text)
+
+        except Exception as e:
+            print(f"[DEBUG] _handle_suggest_timeで例外発生: {e}")
+            import traceback
+            traceback.print_exc()
+            return TextSendMessage(text=f"予定の提案でエラーが発生しました: {str(e)}")
+
     def get_handler(self):
         """WebhookHandlerを取得します"""
         return self.handler 
