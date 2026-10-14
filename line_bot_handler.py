@@ -275,18 +275,30 @@ class LineBotHandler:
             
             # 月のみ入力パターンをチェック
             month_match = re.search(r'(\d{1,2})月', user_message.strip())
-            if month_match and not re.search(r'\d{1,2}日', user_message):
+            # 「今月」という表現も対応
+            is_this_month = '今月' in user_message
+            if (month_match or is_this_month) and not re.search(r'\d{1,2}日', user_message):
                 # 「明日」「明後日」「今日」など相対的な指定が含まれる場合は月全体処理をスキップ
                 relative_keywords = ['明日', '明後日', '今日', '本日']
                 if any(keyword in user_message for keyword in relative_keywords):
                     pass
                 else:
-                    # 「11月」のような月のみ入力の場合、その月の全期間を展開
-                    month_num = int(month_match.group(1))
+                    if is_this_month:
+                        import pytz as _pytz
+                        _now = datetime.now(_pytz.timezone('Asia/Tokyo'))
+                        month_num = _now.month
+                    else:
+                        month_num = int(month_match.group(1))
                     if 1 <= month_num <= 12:
+                        task_type_for_month = ai_result.get('task_type', 'availability_check')
                         location = ai_result.get('location', '')
                         travel_time_minutes = ai_result.get('travel_time_minutes', None)
-                        return self._handle_month_availability(month_num, line_user_id, location=location, travel_time_minutes=travel_time_minutes)
+                        print(f"[DEBUG] 月全体処理: month_num={month_num}, task_type={task_type_for_month}")
+                        # get_eventsならその月の予定一覧を返す
+                        if task_type_for_month == 'get_events':
+                            return self._handle_month_get_events(month_num, line_user_id)
+                        else:
+                            return self._handle_month_availability(month_num, line_user_id, location=location, travel_time_minutes=travel_time_minutes)
             
             if 'error' in ai_result:
                 # AI処理に失敗した場合、ガイダンスメッセージを返す
@@ -586,6 +598,42 @@ class LineBotHandler:
             traceback.print_exc()
             return TextSendMessage(text=f"月の空き時間確認でエラーが発生しました: {str(e)}")
     
+    def _handle_month_get_events(self, month_num, line_user_id):
+        """月全体の予定一覧を取得して返します"""
+        import calendar as cal_module
+        try:
+            now_jst = datetime.now(self.jst)
+            year = now_jst.year
+            if month_num < now_jst.month:
+                year += 1
+
+            _, last_day = cal_module.monthrange(year, month_num)
+
+            # その月の全日付リストを作成
+            from datetime import date as date_cls
+            date_objects = []
+            for day in range(1, last_day + 1):
+                date_objects.append(date_cls(year, month_num, day))
+
+            if not self.calendar_service:
+                return TextSendMessage(text="カレンダーサービスが初期化されていません。")
+            if not self.ai_service:
+                return TextSendMessage(text="AIサービスが初期化されていません。")
+
+            print(f"[DEBUG] _handle_month_get_events: {year}年{month_num}月 ({len(date_objects)}日)")
+
+            events_info = self.calendar_service.get_events_for_dates(date_objects, line_user_id=line_user_id)
+
+            # 予定がある日付だけを抽出してフォーマット
+            response_text = self.ai_service.format_month_events_response(events_info, year, month_num)
+            return TextSendMessage(text=response_text)
+
+        except Exception as e:
+            print(f"[DEBUG] _handle_month_get_eventsで例外: {e}")
+            import traceback
+            traceback.print_exc()
+            return TextSendMessage(text=f"月の予定取得でエラーが発生しました: {str(e)}")
+
     def _handle_availability_check(self, dates_info, line_user_id, location=None, travel_time_minutes=None, required_duration_minutes=None):
         """空き時間確認を処理します"""
         try:

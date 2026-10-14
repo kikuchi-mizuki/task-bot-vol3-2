@@ -985,7 +985,7 @@ class AIService:
                 
         print(f"[DEBUG] 日付ごとの空き時間: {date_slots}")
         
-        response = "✅以下が空き時間です！\n\n"
+        response = "📅 空き時間\n\n"
         for date in sorted(date_slots.keys()):
             slots = sorted(list(date_slots[date]))
             print(f"[DEBUG] 日付{date}の最終空き時間: {slots}")
@@ -1003,7 +1003,7 @@ class AIService:
                 response += f"・{start}〜{end}\n"
                     
         # 全ての日付で空き時間がない場合
-        if response == "✅以下が空き時間です！\n\n":
+        if response == "📅 空き時間\n\n":
             return "✅空き時間はありませんでした。"
 
         print(f"[DEBUG] 最終レスポンス: {response}")
@@ -1011,16 +1011,29 @@ class AIService:
 
     def format_events_response(self, events_info):
         """
-        取得した予定リストを秘書風にフォーマットします
+        取得した予定リストをフォーマットします（統一フォーマット）
         events_info: [{'date': 'YYYY-MM-DD', 'events': [...], 'error': ...}, ...]
+
+        1日だけの場合:
+          📅 M/D（曜）
+
+          HH:MM〜HH:MM タイトル
+
+        複数日の場合:
+          📅 スケジュール（またはラベル）
+
+          M/D（曜）
+          ・HH:MM〜HH:MM タイトル
+
+        予定なし（1日）: 📅 M/D（曜）は予定なし
+        予定なし（複数日）: ・予定なし
         """
         jst = pytz.timezone('Asia/Tokyo')
         if not events_info:
             return "指定された日付に予定はありませんでした。"
 
-        response_parts = []
-        all_empty = True
-
+        # 日付ラベルとイベントブロックを構築
+        day_blocks = []
         for day_info in events_info:
             if 'error' in day_info:
                 date_str = day_info.get('date', '')
@@ -1030,7 +1043,7 @@ class AIService:
                     date_label = f"{dt.month}/{dt.day}（{weekday}）"
                 except Exception:
                     date_label = date_str
-                response_parts.append(f"📅 {date_label}\n取得エラー: {day_info['error']}")
+                day_blocks.append({'label': date_label, 'lines': [f"取得エラー: {day_info['error']}"], 'has_events': False})
                 continue
 
             date_str = day_info.get('date', '')
@@ -1043,51 +1056,147 @@ class AIService:
             except Exception:
                 date_label = date_str
 
-            if not events:
-                response_parts.append(f"📅 {date_label}は予定が入っていません！\n空いています😊")
+            timed_events = []
+            allday_events = []
+            for event in events:
+                if event.get('is_all_day'):
+                    allday_events.append(event)
+                else:
+                    timed_events.append(event)
+
+            lines = []
+            for event in timed_events:
+                start = event.get('start', '')
+                end = event.get('end', '')
+                title = event.get('title', '予定')
+                try:
+                    start_dt = datetime.fromisoformat(start.replace('Z', '+00:00')).astimezone(jst)
+                    end_dt = datetime.fromisoformat(end.replace('Z', '+00:00')).astimezone(jst)
+                    time_str = f"{start_dt.strftime('%H:%M')}〜{end_dt.strftime('%H:%M')}"
+                except Exception:
+                    time_str = f"{start}〜{end}"
+                lines.append(f"{time_str} {title}")
+
+            for event in allday_events:
+                title = event.get('title', '終日予定')
+                lines.append(f"終日 {title}")
+
+            has_events = bool(timed_events or allday_events)
+            day_blocks.append({'label': date_label, 'lines': lines, 'has_events': has_events})
+
+        # 1日のみの場合
+        if len(day_blocks) == 1:
+            block = day_blocks[0]
+            if not block['has_events'] and not block['lines']:
+                return f"📅 {block['label']}は予定なし"
+            elif not block['has_events']:
+                return f"📅 {block['label']}は予定なし"
             else:
-                all_empty = False
-                block = f"📅 {date_label}の予定\n\n"
-                timed_events = []
-                allday_events = []
-                for event in events:
-                    if event.get('is_all_day'):
-                        allday_events.append(event)
-                    else:
-                        timed_events.append(event)
+                result = f"📅 {block['label']}\n\n"
+                result += "\n".join(block['lines'])
+                return result.rstrip()
 
-                for event in timed_events:
-                    start = event.get('start', '')
-                    end = event.get('end', '')
-                    title = event.get('title', '予定')
-                    try:
-                        start_dt = datetime.fromisoformat(start.replace('Z', '+00:00')).astimezone(jst)
-                        end_dt = datetime.fromisoformat(end.replace('Z', '+00:00')).astimezone(jst)
-                        time_str = f"{start_dt.strftime('%H:%M')}〜{end_dt.strftime('%H:%M')}"
-                    except Exception:
-                        time_str = f"{start}〜{end}"
-                    block += f"{time_str} {title}\n"
+        # 複数日の場合
+        response_parts = []
+        for block in day_blocks:
+            if not block['has_events'] and not block['lines']:
+                section = f"{block['label']}\n・予定なし"
+            elif not block['has_events']:
+                section = f"{block['label']}\n・予定なし"
+            else:
+                lines_str = "\n".join(f"・{line}" for line in block['lines'])
+                section = f"{block['label']}\n{lines_str}"
+            response_parts.append(section)
 
-                for event in allday_events:
-                    title = event.get('title', '終日予定')
-                    block += f"終日 {title}\n"
+        return "📅 スケジュール\n\n" + "\n\n".join(response_parts)
 
-                # 最後の予定の終了時刻を調べて「夕方以降は空き」などを追記
-                if timed_events:
-                    try:
-                        last_event = timed_events[-1]
-                        last_end = datetime.fromisoformat(last_event['end'].replace('Z', '+00:00')).astimezone(jst)
-                        last_hour = last_end.hour
-                        if last_hour <= 12:
-                            block += "\n午後以降は空いています！"
-                        elif last_hour <= 17:
-                            block += "\n夕方以降は空いています！"
-                    except Exception:
-                        pass
+    def format_month_events_response(self, events_info, year, month_num):
+        """
+        月全体の予定一覧を「予定がある日だけ」表示するフォーマット
+        events_info: [{'date': 'YYYY-MM-DD', 'events': [...], 'error': ...}, ...]
 
-                response_parts.append(block.rstrip())
+        形式:
+          📅 10月のスケジュール
 
-        return "\n\n".join(response_parts)
+          10/3（金）
+          ・10:00〜11:00 MTG
+
+          10/7（火）
+          ・14:00〜15:00 会議
+
+        予定なし: 📅 10月は予定が入っていません
+        4500文字超えたら打ち切り＋「続きは日付を指定してください」
+        """
+        print(f"[DEBUG] format_month_events_response: {year}年{month_num}月")
+        jst = pytz.timezone('Asia/Tokyo')
+        MAX_LEN = 4500
+
+        header = f"📅 {month_num}月のスケジュール\n\n"
+        day_sections = []
+
+        for day_info in events_info:
+            date_str = day_info.get('date', '')
+            events = day_info.get('events', [])
+
+            # エラーや予定なしの日はスキップ（月全体では予定ある日だけ表示）
+            if 'error' in day_info or not events:
+                continue
+
+            try:
+                dt = jst.localize(datetime.strptime(date_str, '%Y-%m-%d'))
+                weekday = "月火水木金土日"[dt.weekday()]
+                date_label = f"{dt.month}/{dt.day}（{weekday}）"
+            except Exception:
+                date_label = date_str
+
+            timed_events = []
+            allday_events = []
+            for event in events:
+                if event.get('is_all_day'):
+                    allday_events.append(event)
+                else:
+                    timed_events.append(event)
+
+            lines = []
+            for event in timed_events:
+                start = event.get('start', '')
+                end = event.get('end', '')
+                title = event.get('title', '予定')
+                try:
+                    start_dt = datetime.fromisoformat(start.replace('Z', '+00:00')).astimezone(jst)
+                    end_dt = datetime.fromisoformat(end.replace('Z', '+00:00')).astimezone(jst)
+                    time_str = f"{start_dt.strftime('%H:%M')}〜{end_dt.strftime('%H:%M')}"
+                except Exception:
+                    time_str = f"{start}〜{end}"
+                lines.append(f"・{time_str} {title}")
+
+            for event in allday_events:
+                title = event.get('title', '終日予定')
+                lines.append(f"・終日 {title}")
+
+            if lines:
+                section = f"{date_label}\n" + "\n".join(lines)
+                day_sections.append(section)
+
+        if not day_sections:
+            return f"📅 {month_num}月は予定が入っていません"
+
+        # 4500文字制限で打ち切り
+        result = header
+        truncated = False
+        for section in day_sections:
+            addition = section + "\n\n"
+            if len(result) + len(addition) > MAX_LEN:
+                result += "...\n続きは日付を指定してください"
+                truncated = True
+                break
+            result += addition
+
+        if not truncated:
+            result = result.rstrip()
+
+        print(f"[DEBUG] format_month_events_response完了: {len(result)}文字")
+        return result
 
     def format_suggest_response(self, title, free_slots_by_frame):
         """
