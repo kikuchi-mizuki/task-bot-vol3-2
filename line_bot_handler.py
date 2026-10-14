@@ -149,8 +149,6 @@ class LineBotHandler:
                             
                             if success:
                                 # 日時をフォーマット
-                                from datetime import datetime
-                                import pytz
                                 jst = pytz.timezone('Asia/Tokyo')
                                 start_dt = start_datetime.astimezone(jst)
                                 end_dt = end_datetime.astimezone(jst)
@@ -364,7 +362,6 @@ class LineBotHandler:
                     
                     # 終了時間が設定されていない場合は1時間後に設定（元の設定を維持）
                     if not end_time_str or end_time_str == time_str:
-                        from datetime import datetime, timedelta
                         time_obj = datetime.strptime(time_str, "%H:%M")
                         end_time_obj = time_obj + timedelta(hours=1)
                         end_time_str = end_time_obj.strftime("%H:%M")
@@ -432,7 +429,6 @@ class LineBotHandler:
                             
                             # 終了時間が設定されていない場合は1時間後に設定
                             if not event_end_time_str or event_end_time_str == event_time_str:
-                                from datetime import datetime, timedelta
                                 time_obj = datetime.strptime(event_time_str, "%H:%M")
                                 end_time_obj = time_obj + timedelta(hours=1)
                                 event_end_time_str = end_time_obj.strftime("%H:%M")
@@ -464,8 +460,6 @@ class LineBotHandler:
                     
                     if success:
                         # 元の表示形式に合わせて日時をフォーマット
-                        from datetime import datetime
-                        import pytz
                         jst = pytz.timezone('Asia/Tokyo')
                         start_dt = start_datetime.astimezone(jst)
                         end_dt = end_datetime.astimezone(jst)
